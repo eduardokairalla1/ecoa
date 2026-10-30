@@ -79,3 +79,16 @@ export function createProfile(handle: string) {
     body: { handle },
   })
 }
+
+/**
+ * Deletes the signed-in account for good.
+ *
+ * @param password - The current password, asked again.
+ * @returns Nothing.
+ */
+export function deleteAccount(password: string) {
+  return request<void>('/auth/delete-account', {
+    method: 'POST',
+    body: { password },
+  })
+}
