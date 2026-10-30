@@ -4,6 +4,7 @@
 
 // --- IMPORTS ---
 import type { ElementType } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 
 import type {
   ButtonProps,
@@ -48,11 +49,13 @@ export function Button<T extends ElementType = 'button'>({
   as,
   variant = 'primary',
   size = 'md',
+  pending = false,
   className,
   children,
   ...props
 }: ButtonProps<T>) {
   const Component = as ?? 'button'
+  const reduceMotion = useReducedMotion()
 
   return (
     <Component
@@ -66,8 +69,39 @@ export function Button<T extends ElementType = 'button'>({
         className,
       )}
       {...props}
+      disabled={pending || props.disabled}
+      aria-busy={pending || undefined}
     >
       {children}
+
+      {/* Three squares that pulse in turn while the action runs. */}
+      <AnimatePresence initial={false}>
+        {pending ? (
+          <motion.span
+            aria-hidden="true"
+            className="flex gap-1"
+            initial={reduceMotion ? false : { opacity: 0, width: 0 }}
+            animate={{ opacity: 1, width: 'auto' }}
+            exit={reduceMotion ? undefined : { opacity: 0, width: 0 }}
+            transition={{ duration: reduceMotion ? 0 : 0.18 }}
+          >
+            {[0, 1, 2].map((dot) => (
+              <motion.span
+                key={dot}
+                className="size-1 bg-current"
+                animate={
+                  reduceMotion ? undefined : { opacity: [0.25, 1, 0.25] }
+                }
+                transition={{
+                  duration: 0.9,
+                  repeat: Infinity,
+                  delay: dot * 0.15,
+                }}
+              />
+            ))}
+          </motion.span>
+        ) : null}
+      </AnimatePresence>
     </Component>
   )
 }

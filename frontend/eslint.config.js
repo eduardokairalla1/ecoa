@@ -25,7 +25,11 @@ export default defineConfig([
       globals: globals.browser,
     },
     rules: {
-      'max-len': ['error', { code: 80, ignoreUrls: true }],
+      // an import with one name cannot be wrapped: Prettier keeps it whole
+      'max-len': [
+        'error',
+        { code: 80, ignoreUrls: true, ignorePattern: '^import\\s.+\\sfrom\\s' },
+      ],
     },
   },
 ])

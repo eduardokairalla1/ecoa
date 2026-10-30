@@ -14,5 +14,7 @@ export type ButtonProps<T extends ElementType> = {
   as?: T
   variant?: ButtonVariant
   size?: ButtonSize
+  /** Waiting on the action it started: disabled, with a running mark. */
+  pending?: boolean
   children: ReactNode
 } & Omit<ComponentPropsWithoutRef<T>, 'as' | 'children'>

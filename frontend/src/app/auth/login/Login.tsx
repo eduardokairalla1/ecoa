@@ -8,17 +8,27 @@ import type { FormEvent } from 'react'
 import { Link } from 'react-router'
 
 import { AuthShell } from '@/app/auth/AuthShell'
-import type { LoginErrors } from '@/app/auth/Login.t'
+import type { LoginErrors } from '@/app/auth/login/Login.t'
+import { EMAIL, INVALID } from '@/app/auth/rules'
+import { useLoginData } from '@/app/auth/login/useLoginData'
+import { routeTo } from '@/app/navigation/navigation'
 import { Button } from '@/components/ui/Button'
 import { EmailField } from '@/components/ui/EmailField'
 import { Field } from '@/components/ui/Field'
+import { FormAlert } from '@/components/ui/FormAlert'
 import { cn } from '@/components/ui/cn'
 import { ROUTES } from '@/routes'
 
 // --- GLOBALS ---
 const LEDE = 'Sign in to write, reply and manage what is yours.'
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const NOTICES = {
+  verified: 'Email confirmed. Sign in to finish setting up.',
+  reset: 'Password changed. Sign in with the new one.',
+  logout: 'You signed out.',
+  deleted: 'Your account was deleted, with its handle and every session.',
+  none: '',
+} as const
 
 // --- CODE ---
 /**
@@ -27,25 +37,37 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
  * @returns The login screen.
  */
 export function Login() {
-  const [email, setEmail] = useState('')
+  const { submit, state } = useLoginData()
+  const [email, setEmail] = useState(state.email ?? '')
   const [password, setPassword] = useState('')
   const [errors, setErrors] = useState<LoginErrors>({})
 
   /**
-   * Validates both fields and holds the submission.
+   * Validates both fields, then signs in.
    *
    * @param event - The form submission.
    * @returns Nothing.
    */
-  const submit = (event: FormEvent) => {
+  const onSubmit = (event: FormEvent) => {
     event.preventDefault()
 
     const next: LoginErrors = {}
-    if (!EMAIL.test(email)) next.email = 'Enter a valid email address.'
+    if (!EMAIL.test(email)) next.email = INVALID.email
     if (!password) next.password = 'Enter your password.'
 
     setErrors(next)
+    if (Object.keys(next).length === 0) void submit.run(email, password)
   }
+
+  // what the previous screen finished, said once above the form
+  const notice =
+    NOTICES[
+      state.verified
+        ? 'verified'
+        : state.reset
+          ? 'reset'
+          : (state.ended ?? 'none')
+    ]
 
   return (
     <AuthShell
@@ -61,12 +83,18 @@ export function Login() {
         </>
       }
     >
-      <form onSubmit={submit} className="flex flex-col gap-6" noValidate>
+      <form onSubmit={onSubmit} className="flex flex-col gap-6" noValidate>
+        <FormAlert tone="valid">{submit.message ? '' : notice}</FormAlert>
+        <FormAlert>{submit.message}</FormAlert>
+
         <EmailField
           label="Email"
           name="email"
           value={email}
-          onValueChange={setEmail}
+          onValueChange={(value) => {
+            setEmail(value)
+            submit.reset()
+          }}
           autoComplete="email"
           placeholder="you@example.com"
           error={errors.email}
@@ -77,13 +105,16 @@ export function Login() {
           name="password"
           type="password"
           value={password}
-          onChange={(event) => setPassword(event.target.value)}
+          onChange={(event) => {
+            setPassword(event.target.value)
+            submit.reset()
+          }}
           autoComplete="current-password"
           error={errors.password}
         />
 
         <Link
-          to={ROUTES.forgotPassword}
+          {...routeTo('forgotPassword', { email })}
           className={cn(
             'meta self-start text-muted transition-colors',
             'duration-interface hover:text-primary',
@@ -92,8 +123,8 @@ export function Login() {
           Forgot your password?
         </Link>
 
-        <Button type="submit" size="lg">
-          Sign in
+        <Button type="submit" size="lg" pending={submit.pending}>
+          {submit.pending ? 'Signing in' : 'Sign in'}
         </Button>
       </form>
     </AuthShell>

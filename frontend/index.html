@@ -8,6 +8,13 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0e0f10" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- the canvas before any CSS arrives, so a load never flashes white -->
+    <style>
+      html {
+        background-color: #0e0f10;
+        color-scheme: dark;
+      }
+    </style>
     <title>Ecoa — Every experience leaves an echo</title>
     <meta
       name="description"

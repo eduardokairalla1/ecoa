@@ -14,4 +14,9 @@ export default defineConfig({
   resolve: {
     alias: { '@': path.resolve(import.meta.dirname, 'src') },
   },
+  // the API answers on the same origin in dev, so the session cookies
+  // travel without any cross-origin setup
+  server: {
+    proxy: { '/api': 'http://localhost:8000' },
+  },
 })

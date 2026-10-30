@@ -4,9 +4,9 @@
 
 @theme {
   /* --- type families --- */
-  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* --- type scale --- */
   --text-display-xl: clamp(2.5rem, 8vw, 6rem);
@@ -99,7 +99,7 @@
 }
 
 /* --- paper context --- */
-[data-surface="light"] {
+[data-surface='light'] {
   --ecoa-canvas: #fafaf8;
   --ecoa-surface: #ffffff;
   --ecoa-surface-raised: #ffffff;
@@ -135,7 +135,7 @@
 
 /* --- signal palette: blue (default) --- */
 :root,
-[data-palette="blue"] {
+[data-palette='blue'] {
   --ecoa-signal: #6d9bff;
   --ecoa-signal-bright: #8fb4ff;
   --ecoa-signal-dim: #3f6fd6;
@@ -148,8 +148,8 @@
 }
 
 /* --- blue on paper: same blue, fill only --- */
-:root [data-surface="light"],
-[data-palette="blue"] [data-surface="light"] {
+:root [data-surface='light'],
+[data-palette='blue'] [data-surface='light'] {
   --ecoa-signal: #6d9bff;
   --ecoa-signal-bright: #8fb4ff;
   --ecoa-signal-dim: #4e82ea;
@@ -161,7 +161,7 @@
 }
 
 /* --- signal palette: mono --- */
-[data-palette="mono"] {
+[data-palette='mono'] {
   --ecoa-signal: #f4f3ee;
   --ecoa-signal-bright: #ffffff;
   --ecoa-signal-dim: #a8adb3;
@@ -171,7 +171,7 @@
   --ecoa-hand: #6d9bff;
 }
 
-[data-palette="mono"] [data-surface="light"] {
+[data-palette='mono'] [data-surface='light'] {
   --ecoa-signal: #111316;
   --ecoa-signal-bright: #000000;
   --ecoa-signal-dim: #55595f;
@@ -183,7 +183,6 @@
 
 /* --- tailwind registration: `inline` keeps these re-resolvable --- */
 @theme inline {
-
   --color-canvas: var(--ecoa-canvas);
   --color-surface: var(--ecoa-surface);
   --color-surface-raised: var(--ecoa-surface-raised);

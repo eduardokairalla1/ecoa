@@ -49,7 +49,7 @@ router = APIRouter()
 COMMON = (TooManyRequestsError, AuthProviderError)
 
 
-# --- ACCOUNT ---
+# --- CODE ---
 @router.post('/register',
              summary='Create an account',
              status_code=201,
@@ -162,8 +162,7 @@ async def refresh(
 
 @router.post('/logout',
              summary='Sign out',
-             status_code=204,
-             responses=error_responses(*COMMON))
+             status_code=204)
 async def logout(
     request: Request,
     auth: AuthService = Depends(get_auth),
@@ -179,7 +178,6 @@ async def logout(
     return response
 
 
-# --- PASSWORD ---
 @router.post('/forgot-password',
              summary='Ask for a password reset code',
              status_code=204,

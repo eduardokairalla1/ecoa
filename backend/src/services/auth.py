@@ -5,10 +5,12 @@ Authentication service.
 # --- IMPORTS ---
 from src.clients.cognito import CognitoClient
 from src.clients.tokens import TokenVerifier
+from src.err.auth_provider_error import AuthProviderError
 from src.err.handle_taken_error import HandleTakenError
 from src.err.invalid_session_error import InvalidSessionError
 from src.err.profile_exists_error import ProfileExistsError
 from src.err.profile_incomplete_error import ProfileIncompleteError
+from src.err.too_many_requests_error import TooManyRequestsError
 from src.models.user import User
 from src.schemas.auth import Account
 from src.schemas.auth import Session
@@ -16,6 +18,11 @@ from src.schemas.auth import Tokens
 from src.storage.users import UserStorage
 
 import asyncio
+import logging
+
+
+# --- GLOBALS ---
+logger = logging.getLogger(__name__)
 
 
 # --- CODE ---
@@ -154,8 +161,13 @@ class AuthService:
 
         :return: None.
         """
-        if refresh_token:
+        if not refresh_token:
+            return
+
+        try:
             await self._cognito.sign_out(refresh_token)
+        except (AuthProviderError, TooManyRequestsError) as error:
+            logger.warning('Could not revoke the session: %r', error)
 
 
     async def forgot_password(self, email: str) -> None:
