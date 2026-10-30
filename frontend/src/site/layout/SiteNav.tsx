@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { motion, useReducedMotion } from 'motion/react'
+import { Link } from 'react-router'
 import { Button } from '@/components/ui/Button'
 import { CircleMark } from '@/components/ecoa/CircleMark'
 import { Wordmark } from '@/components/ecoa/Wordmark'
@@ -117,10 +118,10 @@ function MobileMenu({ surface }: { surface: 'dark' | 'light' }) {
             </Container>
 
             <Container className="flex flex-wrap gap-2 py-6">
-              <Button as="a" href={ROUTES.explore} variant="secondary">
+              <Button as={Link} to={ROUTES.explore} variant="secondary">
                 Explore
               </Button>
-              <Button as="a" href={ROUTES.login} variant="ghost">
+              <Button as={Link} to={ROUTES.login} variant="ghost">
                 Login
               </Button>
             </Container>
@@ -265,8 +266,8 @@ export function SiteNav() {
         <div className="flex items-center gap-2 justify-self-end">
           {/* One breakpoint, not three. */}
           <Button
-            as="a"
-            href={ROUTES.explore}
+            as={Link}
+            to={ROUTES.explore}
             variant="ghost"
             size="sm"
             className="hidden duration-surface lg:inline-flex"
@@ -274,8 +275,8 @@ export function SiteNav() {
             Explore
           </Button>
           <Button
-            as="a"
-            href={ROUTES.login}
+            as={Link}
+            to={ROUTES.login}
             variant="ghost"
             size="sm"
             className="hidden duration-surface lg:inline-flex"
@@ -284,8 +285,8 @@ export function SiteNav() {
           </Button>
           {/* White label, by decision: 2.7:1 where ink is 7.0:1. */}
           <Button
-            as="a"
-            href={ROUTES.register}
+            as={Link}
+            to={ROUTES.register}
             variant="primary"
             size="sm"
             className="text-white hover:text-white"

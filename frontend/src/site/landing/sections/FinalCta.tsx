@@ -5,6 +5,7 @@
 // --- IMPORTS ---
 import { cn } from '@/components/ui/cn'
 import { motion } from 'motion/react'
+import { Link } from 'react-router'
 
 import { CircleMark } from '@/components/ecoa/CircleMark'
 import { Button } from '@/components/ui/Button'
@@ -58,13 +59,13 @@ export function FinalCta() {
           {...reveal(0.18)}
           className="flex flex-wrap items-center justify-center gap-3"
         >
-          <Button as="a" href={ROUTES.explore} size="lg">
+          <Button as={Link} to={ROUTES.explore} size="lg">
             Explore Ecoa
           </Button>
-          <Button as="a" href={ROUTES.register} variant="secondary" size="lg">
+          <Button as={Link} to={ROUTES.register} variant="secondary" size="lg">
             Create identity
           </Button>
-          <Button as="a" href={ROUTES.write} variant="ghost" size="lg">
+          <Button as={Link} to={ROUTES.write} variant="ghost" size="lg">
             Write a review
           </Button>
         </motion.div>

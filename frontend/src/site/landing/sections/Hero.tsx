@@ -4,6 +4,7 @@
 
 // --- IMPORTS ---
 import { motion, useReducedMotion } from 'motion/react'
+import { Link } from 'react-router'
 
 import { CircleMark } from '@/components/ecoa/CircleMark'
 import { HeroField } from '@/site/landing/motifs/HeroField'
@@ -127,10 +128,10 @@ export function Hero() {
           {...rise(0.32)}
           className="flex flex-wrap items-center justify-center gap-3"
         >
-          <Button as="a" href={ROUTES.explore} size="lg">
+          <Button as={Link} to={ROUTES.explore} size="lg">
             Explore the network
           </Button>
-          <Button as="a" href={ROUTES.write} variant="secondary" size="lg">
+          <Button as={Link} to={ROUTES.write} variant="secondary" size="lg">
             Write a review
           </Button>
         </motion.div>
