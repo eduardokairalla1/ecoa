@@ -73,6 +73,19 @@ export function logout() {
 }
 
 /**
+ * Emails a code that lets the account choose a new password.
+ *
+ * @param email - The account's address.
+ * @returns Nothing.
+ */
+export function forgotPassword(email: string) {
+  return request<void>('/auth/forgot-password', {
+    method: 'POST',
+    body: { email },
+  })
+}
+
+/**
  * Reads the signed-in account.
  *
  * @returns The account.
