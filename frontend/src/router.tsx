@@ -6,11 +6,11 @@
 import { createBrowserRouter } from 'react-router'
 
 import { Register } from '@/app/auth/register/Register'
+import { VerifyEmail } from '@/app/auth/verifyEmail/VerifyEmail'
 import { AppLayout } from '@/app/layout/AppLayout'
 import { ForgotPassword } from '@/app/auth/ForgotPassword'
 import { Login } from '@/app/auth/Login'
 import { ResetPassword } from '@/app/auth/ResetPassword'
-import { VerifyEmail } from '@/app/auth/VerifyEmail'
 import { Landing } from '@/site/landing/Landing'
 import { NotFound } from '@/site/NotFound'
 import { SiteLayout } from '@/site/layout/SiteLayout'

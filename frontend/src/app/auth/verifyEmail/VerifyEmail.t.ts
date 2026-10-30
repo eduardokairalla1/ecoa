@@ -8,3 +8,8 @@ export type VerifyState = {
   unverified?: boolean
   sent?: boolean
 }
+
+export type VerifyErrors = {
+  email?: string
+  code?: string
+}
