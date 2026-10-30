@@ -162,8 +162,7 @@ async def refresh(
 
 @router.post('/logout',
              summary='Sign out',
-             status_code=204,
-             responses=error_responses(*COMMON))
+             status_code=204)
 async def logout(
     request: Request,
     auth: AuthService = Depends(get_auth),

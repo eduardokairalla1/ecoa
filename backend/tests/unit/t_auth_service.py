@@ -12,6 +12,7 @@ from src.err.invalid_session_error import InvalidSessionError
 from src.err.not_authenticated_error import NotAuthenticatedError
 from src.err.profile_exists_error import ProfileExistsError
 from src.err.profile_incomplete_error import ProfileIncompleteError
+from src.err.too_many_requests_error import TooManyRequestsError
 from src.models.user import User
 from src.schemas.auth import AccessClaims
 from src.schemas.auth import AccountAttributes
@@ -266,6 +267,20 @@ def test_refresh_without_a_genuine_session_is_refused(
 def test_logout_revokes_the_session(
     auth: AuthService, cognito: FakeCognito
 ) -> None:
+    asyncio.run(auth.logout('refresh'))
+
+    assert cognito.called('sign_out') == [('refresh',)]
+
+
+@pytest.mark.parametrize(
+    'failure', [AuthProviderError(), TooManyRequestsError()],
+    ids=['provider down', 'throttled'],
+)
+def test_logout_ends_the_session_even_when_revoking_fails(
+    auth: AuthService, cognito: FakeCognito, failure: Exception
+) -> None:
+    cognito.failures['sign_out'] = failure
+
     asyncio.run(auth.logout('refresh'))
 
     assert cognito.called('sign_out') == [('refresh',)]
