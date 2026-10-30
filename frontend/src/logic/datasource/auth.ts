@@ -50,6 +50,15 @@ export function resendVerification(email: string) {
 }
 
 /**
+ * Ends the session.
+ *
+ * @returns Nothing.
+ */
+export function logout() {
+  return request<void>('/auth/logout', { method: 'POST', retry: false })
+}
+
+/**
  * Reads the signed-in account.
  *
  * @returns The account.
