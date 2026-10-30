@@ -50,6 +50,20 @@ export function resendVerification(email: string) {
 }
 
 /**
+ * Signs in. The session travels in cookies the page never sees.
+ *
+ * @param email - The account's address.
+ * @param password - The account's password.
+ * @returns The account signed in.
+ */
+export function login(email: string, password: string) {
+  return request<Account>('/auth/login', {
+    method: 'POST',
+    body: { email, password },
+  })
+}
+
+/**
  * Ends the session.
  *
  * @returns Nothing.
