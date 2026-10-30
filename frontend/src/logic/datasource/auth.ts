@@ -37,6 +37,19 @@ export function verify(email: string, code: string) {
 }
 
 /**
+ * Emails a new confirmation code; the previous one stops working.
+ *
+ * @param email - The account's address.
+ * @returns Nothing.
+ */
+export function resendVerification(email: string) {
+  return request<void>('/auth/verify/resend', {
+    method: 'POST',
+    body: { email },
+  })
+}
+
+/**
  * Reads the signed-in account.
  *
  * @returns The account.
