@@ -5,6 +5,7 @@
 // --- IMPORTS ---
 import { createBrowserRouter } from 'react-router'
 
+import { Account } from '@/app/account/Account'
 import { ChooseHandle } from '@/app/auth/chooseHandle/ChooseHandle'
 import { Register } from '@/app/auth/register/Register'
 import { VerifyEmail } from '@/app/auth/verifyEmail/VerifyEmail'
@@ -37,6 +38,14 @@ export const router = createBrowserRouter([
       {
         element: <RequireAuth profile={false} />,
         children: [{ path: 'welcome', element: <ChooseHandle /> }],
+      },
+
+      // signed in, with a complete account
+      {
+        element: <RequireAuth profile />,
+        children: [
+          { path: 'account', element: <Account /> },
+        ],
       },
     ],
   },

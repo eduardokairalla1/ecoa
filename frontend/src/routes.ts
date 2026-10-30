@@ -18,4 +18,5 @@ export const ROUTES = {
   forgotPassword: `${APP}/forgot-password`,
   resetPassword: `${APP}/reset-password`,
   welcome: `${APP}/welcome`,
+  account: `${APP}/account`,
 } as const
