@@ -57,3 +57,16 @@ export function resendVerification(email: string) {
 export function me() {
   return request<Account>('/auth/me')
 }
+
+/**
+ * Chooses the handle of an account that has none yet.
+ *
+ * @param handle - The public name, chosen once.
+ * @returns The account, now with its handle.
+ */
+export function createProfile(handle: string) {
+  return request<Account>('/auth/profile', {
+    method: 'POST',
+    body: { handle },
+  })
+}
