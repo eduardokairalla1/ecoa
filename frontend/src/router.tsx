@@ -14,6 +14,7 @@ import { AppLayout } from '@/app/layout/AppLayout'
 import { ForgotPassword } from '@/app/auth/ForgotPassword'
 import { Login } from '@/app/auth/Login'
 import { ResetPassword } from '@/app/auth/ResetPassword'
+import { GuestOnly } from '@/app/layout/GuestOnly'
 import { RequireAuth } from '@/app/layout/RequireAuth'
 import { Landing } from '@/site/landing/Landing'
 import { NotFound } from '@/site/NotFound'
@@ -21,19 +22,31 @@ import { SiteLayout } from '@/site/layout/SiteLayout'
 
 // --- GLOBALS ---
 export const router = createBrowserRouter([
+  // the site is for visitors: someone signed in goes to the dashboard
   {
-    element: <SiteLayout />,
-    children: [{ index: true, element: <Landing /> }],
+    element: <GuestOnly />,
+    children: [
+      {
+        element: <SiteLayout />,
+        children: [{ index: true, element: <Landing /> }],
+      },
+    ],
   },
   {
     path: 'app',
     element: <AppLayout />,
     children: [
-      { path: 'login', element: <Login /> },
-      { path: 'register', element: <Register /> },
-      { path: 'verify', element: <VerifyEmail /> },
-      { path: 'forgot-password', element: <ForgotPassword /> },
-      { path: 'reset-password', element: <ResetPassword /> },
+      // for someone not signed in yet: signing in, or recovering an account
+      {
+        element: <GuestOnly />,
+        children: [
+          { path: 'login', element: <Login /> },
+          { path: 'register', element: <Register /> },
+          { path: 'verify', element: <VerifyEmail /> },
+          { path: 'forgot-password', element: <ForgotPassword /> },
+          { path: 'reset-password', element: <ResetPassword /> },
+        ],
+      },
 
       // signed in, before the handle is chosen
       {
