@@ -23,6 +23,20 @@ export function register(handle: string, email: string, password: string) {
 }
 
 /**
+ * Confirms an email with the code it was sent.
+ *
+ * @param email - The account's address.
+ * @param code - The 6-digit code.
+ * @returns Nothing.
+ */
+export function verify(email: string, code: string) {
+  return request<void>('/auth/verify', {
+    method: 'POST',
+    body: { email, code },
+  })
+}
+
+/**
  * Reads the signed-in account.
  *
  * @returns The account.
