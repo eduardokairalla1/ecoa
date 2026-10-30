@@ -86,6 +86,21 @@ export function forgotPassword(email: string) {
 }
 
 /**
+ * Sets a new password with the code the account was sent.
+ *
+ * @param email - The account's address.
+ * @param code - The 6-digit code.
+ * @param password - The new password.
+ * @returns Nothing.
+ */
+export function resetPassword(email: string, code: string, password: string) {
+  return request<void>('/auth/reset-password', {
+    method: 'POST',
+    body: { email, code, password },
+  })
+}
+
+/**
  * Reads the signed-in account.
  *
  * @returns The account.
