@@ -51,6 +51,7 @@ def setup_logger() -> logging.Logger:
     logging.getLogger('asyncio').setLevel(logging.WARNING)
     logging.getLogger('botocore').setLevel(logging.WARNING)
     logging.getLogger('aiobotocore').setLevel(logging.WARNING)
+    logging.getLogger('grpc').setLevel(logging.WARNING)
 
     # return the configured root logger
     return root_logger
