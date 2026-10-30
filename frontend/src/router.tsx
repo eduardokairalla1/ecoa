@@ -5,12 +5,14 @@
 // --- IMPORTS ---
 import { createBrowserRouter } from 'react-router'
 
+import { ChooseHandle } from '@/app/auth/chooseHandle/ChooseHandle'
 import { Register } from '@/app/auth/register/Register'
 import { VerifyEmail } from '@/app/auth/verifyEmail/VerifyEmail'
 import { AppLayout } from '@/app/layout/AppLayout'
 import { ForgotPassword } from '@/app/auth/ForgotPassword'
 import { Login } from '@/app/auth/Login'
 import { ResetPassword } from '@/app/auth/ResetPassword'
+import { RequireAuth } from '@/app/layout/RequireAuth'
 import { Landing } from '@/site/landing/Landing'
 import { NotFound } from '@/site/NotFound'
 import { SiteLayout } from '@/site/layout/SiteLayout'
@@ -30,6 +32,12 @@ export const router = createBrowserRouter([
       { path: 'verify', element: <VerifyEmail /> },
       { path: 'forgot-password', element: <ForgotPassword /> },
       { path: 'reset-password', element: <ResetPassword /> },
+
+      // signed in, before the handle is chosen
+      {
+        element: <RequireAuth profile={false} />,
+        children: [{ path: 'welcome', element: <ChooseHandle /> }],
+      },
     ],
   },
   {
