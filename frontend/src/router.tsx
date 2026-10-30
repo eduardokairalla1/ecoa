@@ -7,6 +7,7 @@ import { createBrowserRouter } from 'react-router'
 
 import { Account } from '@/app/account/Account'
 import { ChooseHandle } from '@/app/auth/chooseHandle/ChooseHandle'
+import { Dashboard } from '@/app/dashboard/Dashboard'
 import { Register } from '@/app/auth/register/Register'
 import { VerifyEmail } from '@/app/auth/verifyEmail/VerifyEmail'
 import { AppLayout } from '@/app/layout/AppLayout'
@@ -44,6 +45,7 @@ export const router = createBrowserRouter([
       {
         element: <RequireAuth profile />,
         children: [
+          { index: true, element: <Dashboard /> },
           { path: 'account', element: <Account /> },
         ],
       },
