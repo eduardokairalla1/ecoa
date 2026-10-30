@@ -9,6 +9,7 @@ const PENDING = '/404'
 
 export const ROUTES = {
   home: '/',
+  dashboard: APP,
   explore: PENDING,
   write: PENDING,
   login: `${APP}/login`,
@@ -16,4 +17,5 @@ export const ROUTES = {
   verify: `${APP}/verify`,
   forgotPassword: `${APP}/forgot-password`,
   resetPassword: `${APP}/reset-password`,
+  welcome: `${APP}/welcome`,
 } as const
