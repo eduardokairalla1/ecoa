@@ -24,6 +24,10 @@ const createdAtLayout = "2006-01-02T15:04:05Z"
 const MaxSize = 16 << 10
 
 
+// supportedVersion is the only envelope version v1 implements.
+const supportedVersion = 1
+
+
 // maxDepth is the nesting cap of the protocol.
 const maxDepth = 32
 
@@ -80,6 +84,16 @@ type Envelope struct {
 	CreatedAt string
 	Payload   json.RawMessage
 	Signature string
+}
+
+
+// Header is the protocol and version of raw, nil where Decode reports.
+type Header struct {
+	// Protocol is nil when absent or not a string
+	Protocol *string
+
+	// Version is nil when absent or not an integer
+	Version *int
 }
 
 
@@ -268,6 +282,64 @@ func CheckSize(raw []byte, limit int) error {
 
 	if len(raw) > limit {
 		return &TooLargeError{Size: len(raw), Limit: limit}
+	}
+
+	return nil
+}
+
+
+// ReadHeader reads protocol and version, under their exact keys.
+func ReadHeader(raw []byte) (Header, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return Header{}, &MalformedJSONError{Detail: err.Error()}
+	}
+
+	header := Header{
+		Protocol: headerProtocol(fields["protocol"]),
+		Version:  headerVersion(fields["version"]),
+	}
+
+	return header, nil
+}
+
+
+// headerProtocol returns raw when it is a string, or else nil.
+func headerProtocol(raw json.RawMessage) *string {
+	var protocol *string
+	if err := json.Unmarshal(raw, &protocol); err != nil {
+		return nil
+	}
+
+	return protocol
+}
+
+
+// headerVersion returns raw when it is an integer of the protocol, or else nil.
+func headerVersion(raw json.RawMessage) *int {
+	version, err := strconv.Atoi(string(raw))
+	if err != nil || checkNumber(json.Number(raw)) != nil {
+		return nil
+	}
+
+	return &version
+}
+
+
+// CheckNetwork rejects a protocol that is not this network.
+func CheckNetwork(protocol *string, network string) error {
+	if protocol != nil && *protocol != network {
+		return &OtherNetworkError{Protocol: *protocol}
+	}
+
+	return nil
+}
+
+
+// CheckVersion rejects a version this implementation does not support.
+func CheckVersion(version *int) error {
+	if version != nil && *version != supportedVersion {
+		return &OtherNetworkError{Version: version}
 	}
 
 	return nil
