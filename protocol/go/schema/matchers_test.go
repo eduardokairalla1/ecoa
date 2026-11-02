@@ -1,0 +1,23 @@
+package schema
+
+
+import "errors"
+
+
+// --- CODE ---
+
+// is tells whether err is or wraps an error of type T.
+func is[T error](err error) bool {
+	var target T
+	return errors.As(err, &target)
+}
+
+
+// matches tells whether err passes want, or is nil when want is nil.
+func matches(err error, want func(error) bool) bool {
+	if want == nil {
+		return err == nil
+	}
+
+	return want(err)
+}
