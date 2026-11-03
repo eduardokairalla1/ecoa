@@ -104,6 +104,19 @@ type Header struct {
 }
 
 
+// Rules is what Open needs to know about the receiving node.
+type Rules struct {
+	// Network is the network this node belongs to.
+	Network string
+
+	// MaxSize is this node's limit per event, in bytes.
+	MaxSize int
+
+	// Now reads the local clock.
+	Now func() time.Time
+}
+
+
 // frame is one open object or array.
 type frame struct {
 	// isObject tells an object from an array
@@ -371,6 +384,46 @@ func CheckCreatedAt(createdAt string, now time.Time) error {
 	}
 
 	return nil
+}
+
+
+// Open returns the envelope of raw once its size, network and shape pass.
+func Open(raw []byte, rules Rules) (*Envelope, error) {
+	if err := CheckSize(raw, rules.MaxSize); err != nil {
+		return nil, err
+	}
+
+	if err := checkHeader(raw, rules.Network); err != nil {
+		return nil, err
+	}
+
+	env, err := Decode(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	err = CheckCreatedAt(env.CreatedAt, rules.Now())
+	if err != nil {
+		return nil, err
+	}
+
+	return env, nil
+}
+
+
+// checkHeader checks network and version, skipped where Decode reports.
+func checkHeader(raw []byte, network string) error {
+	header, err := ReadHeader(raw)
+	if err != nil {
+		return nil
+	}
+
+	err = CheckNetwork(header.Protocol, network)
+	if err != nil {
+		return err
+	}
+
+	return CheckVersion(header.Version)
 }
 
 
