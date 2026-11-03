@@ -38,6 +38,9 @@ var (
 
 	// badSignature tells whether an error is an InvalidSignatureError
 	badSignature = is[*InvalidSignatureError]
+
+	// signedByDevice tells whether an error is a DeviceKeyNotSupportedError
+	signedByDevice = is[*DeviceKeyNotSupportedError]
 )
 
 
@@ -292,6 +295,25 @@ func TestVerifySignatureAcceptsItsOwnKey(t *testing.T) {
 	// Assert
 	if err != nil {
 		t.Fatalf("VerifySignature: %v", err)
+	}
+}
+
+
+func TestCheckSingleKey(t *testing.T) {
+	// Arrange
+	device := "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK"
+
+	// Act
+	single := checkSingleKey(&envelope.Envelope{DeviceKey: nil})
+	filled := checkSingleKey(&envelope.Envelope{DeviceKey: &device})
+
+	// Assert
+	if single != nil {
+		t.Fatalf("null deviceKey: %v", single)
+	}
+
+	if !signedByDevice(filled) {
+		t.Fatalf("filled deviceKey = %v", filled)
 	}
 }
 
