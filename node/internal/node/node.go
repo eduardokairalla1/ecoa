@@ -48,7 +48,7 @@ func (n *Node) Handle(raw []byte) error {
 // Run pulls events from the topic until ctx is cancelled.
 func (n *Node) Run(ctx context.Context) {
 	for {
-		raw, err := n.peer.ReceiveEvent(ctx)
+		raw, _, err := n.peer.ReceiveEvent(ctx)
 		if err != nil {
 			return
 		}
