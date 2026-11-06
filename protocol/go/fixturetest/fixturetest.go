@@ -5,12 +5,23 @@ package fixturetest
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
+
+
+// --- GLOBALS ---
+
+// referenceKeys are the expect keys whose values name events or authors.
+var referenceKeys = []string{
+	"head", "chain", "losingBranch", "withdrawnChain", "responsesOnHead",
+	"respondedTo", "countedVote", "stored", "counted", "labelledProposals",
+	"retained",
+}
 
 
 // --- CODE ---
@@ -100,7 +111,155 @@ func parse(dir string, raw []byte) (File, error) {
 		return File{}, err
 	}
 
+	if err := checkCases(file); err != nil {
+		return File{}, err
+	}
+
 	return file, nil
+}
+
+
+// checkCases applies the checks beyond the schema to every case of file.
+func checkCases(file File) error {
+	for _, c := range file.Cases {
+		known, err := checkArrival(c)
+		if err != nil {
+			return err
+		}
+
+		if err := checkReferences(c, known); err != nil {
+			return err
+		}
+
+		if err := checkWeights(c); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+
+// checkArrival refuses a repeated id and returns the ids and authors of c.
+func checkArrival(c Case) (map[string]bool, error) {
+	known := map[string]bool{}
+
+	for _, a := range c.Arrival {
+		if known[a.ID] {
+			return nil, fmt.Errorf("case %q: id %q repeats", c.Name, a.ID)
+		}
+
+		known[a.ID] = true
+	}
+
+	// a rotation chain in expect names authors and their successors
+	for _, a := range c.Arrival {
+		known[a.Author] = true
+
+		if next := successor(a); next != "" {
+			known[next] = true
+		}
+	}
+
+	return known, nil
+}
+
+
+// successor returns the successor key a rotation names, or "" for no one.
+func successor(a Arrival) string {
+	var payload struct {
+		Successor string `json:"successor"`
+	}
+
+	// a payload that is not an object names no successor
+	_ = json.Unmarshal(a.Payload, &payload)
+
+	return payload.Successor
+}
+
+
+// checkReferences refuses a name in expect that arrival never introduces.
+func checkReferences(c Case, known map[string]bool) error {
+	for _, ref := range references(c.Expect) {
+		if !known[ref] {
+			return fmt.Errorf("case %q: expect names %q, absent from arrival",
+			                  c.Name, ref)
+		}
+	}
+
+	return nil
+}
+
+
+// references lists the names expect gives to events and authors.
+func references(expect map[string]any) []string {
+	var refs []string
+
+	for _, key := range referenceKeys {
+		refs = append(refs, names(expect[key])...)
+	}
+
+	for name := range asMap(expect["historical"]) {
+		refs = append(refs, name)
+	}
+
+	for _, label := range asList(expect["labelsOnHead"]) {
+		refs = append(refs, names(asMap(label)["id"])...)
+	}
+
+	return refs
+}
+
+
+// names returns the strings of v, which is one string or a list of them.
+func names(v any) []string {
+	if s, ok := v.(string); ok {
+		return []string{s}
+	}
+
+	var out []string
+
+	for _, item := range asList(v) {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
+		}
+	}
+
+	return out
+}
+
+
+// asList returns v as a list, or nil when it is not one.
+func asList(v any) []any {
+	list, _ := v.([]any)
+
+	return list
+}
+
+
+// asMap returns v as an object, or nil when it is not one.
+func asMap(v any) map[string]any {
+	object, _ := v.(map[string]any)
+
+	return object
+}
+
+
+// checkWeights refuses a proposal whose author has no weight declared.
+func checkWeights(c Case) error {
+	if len(c.Identities) == 0 {
+		return nil
+	}
+
+	for _, a := range c.Arrival {
+		_, declared := c.Identities[a.Author]
+		if a.Type == "entity.updated" && !declared {
+			return fmt.Errorf("case %q: %q proposes with no weight",
+			                  c.Name, a.Author)
+		}
+	}
+
+	return nil
 }
 
 
