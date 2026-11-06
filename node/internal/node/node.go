@@ -9,11 +9,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eduardokairalla1/EcoaNetwork/internal/orphan"
 	"github.com/eduardokairalla1/EcoaNetwork/internal/p2p"
 	"github.com/eduardokairalla1/EcoaNetwork/internal/store"
 	"github.com/eduardokairalla1/EcoaNetwork/protocol/go/envelope"
 	"github.com/eduardokairalla1/EcoaNetwork/protocol/go/event"
 	"github.com/eduardokairalla1/EcoaNetwork/protocol/go/identity"
+	"github.com/eduardokairalla1/EcoaNetwork/protocol/go/references"
 	"github.com/eduardokairalla1/EcoaNetwork/protocol/go/schema"
 )
 
@@ -35,7 +37,26 @@ const (
 
 	// Failed is an event the node could not judge, for a fault of its own.
 	Failed
+
+	// Orphaned is an event held until the events it names arrive.
+	Orphaned
 )
+
+
+// maxOrphans is the entries the orphan buffer holds.
+const maxOrphans = 10000
+
+
+// peerOrphans is the entries of the orphan buffer one origin may hold.
+const peerOrphans = maxOrphans / 10
+
+
+// orphanAge is how long an orphan waits for its target.
+const orphanAge = time.Hour
+
+
+// gatewayOrigin is the origin the orphan buffer charges the gateway to.
+const gatewayOrigin = "gateway"
 
 
 // --- GLOBALS ---
@@ -47,6 +68,7 @@ var outcomeNames = map[Outcome]string{
 	Ignored:   "ignored",
 	Rejected:  "rejected",
 	Failed:    "failed",
+	Orphaned:  "orphaned",
 }
 
 
@@ -65,6 +87,9 @@ type Node struct {
 
 	// identities are the rotations and revocations this node observed
 	identities *identity.Tracker
+
+	// orphans hold the events whose references have not resolved
+	orphans *orphan.Buffer
 
 	// mu serializes events from the revocation check to the store
 	mu sync.Mutex
@@ -96,12 +121,15 @@ func New(ctx context.Context,
 		Now:     time.Now,
 	}
 
+	orphans := orphan.New(maxOrphans, peerOrphans, orphanAge, time.Now)
+
 	return &Node{
 		store:      s,
 		peer:       p,
 		rules:      rules,
 		schemas:    schemas,
 		identities: identity.NewTracker(),
+		orphans:    orphans,
 	}, nil
 }
 
@@ -144,11 +172,37 @@ func (n *Node) Receive(raw []byte, arrival Arrival) (Outcome, error) {
 		return report(arrival, Rejected, err)
 	}
 
+	outcome, err := n.admit(env, verified, arrival)
+	if outcome == Stored {
+		n.release(env.EventID)
+	}
+
+	return outcome, err
+}
+
+
+// admit stores a verified event, or holds it when a reference is missing.
+func (n *Node) admit(env *envelope.Envelope,
+                     verified event.Event,
+                     arrival Arrival) (Outcome, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
 	if err := n.observe(env); err != nil {
 		return report(arrival, Rejected, err)
+	}
+
+	result, err := references.Check(env, lookup{n.store, n.identities})
+	if err != nil {
+		return report(arrival, Failed, err)
+	}
+
+	if result.Kind == references.Rejected {
+		return report(arrival, Rejected, result.Err)
+	}
+
+	if result.Kind == references.Unresolved {
+		return n.hold(verified, result.Missing, arrival), nil
 	}
 
 	err = n.store.AddEvent(verified.ID(), verified.Raw())
@@ -160,8 +214,35 @@ func (n *Node) Receive(raw []byte, arrival Arrival) (Outcome, error) {
 		return report(arrival, Failed, err)
 	}
 
-	slog.Info("stored", "arrival", arrival.Kind, "bytes", len(raw))
+	slog.Info("stored", "arrival", arrival.Kind, "bytes", len(verified.Raw()))
 	return Stored, nil
+}
+
+
+// hold parks an event until the events it names are stored.
+func (n *Node) hold(verified event.Event,
+                    missing []string,
+                    arrival Arrival) Outcome {
+	n.orphans.Add(orphan.Entry{
+		Raw:     verified.Raw(),
+		Missing: missing,
+		Origin:  originOf(arrival),
+	})
+
+	slog.Info("orphaned",
+	          "arrival", arrival.Kind,
+	          "peer", arrival.Peer,
+	          "missing", missing[0])
+
+	return Orphaned
+}
+
+
+// release hands every orphan waiting for id back to Receive.
+func (n *Node) release(id string) {
+	for _, entry := range n.orphans.Release(id) {
+		n.Receive(entry.Raw, arrivalOf(entry.Origin))
+	}
 }
 
 

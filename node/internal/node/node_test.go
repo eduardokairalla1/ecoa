@@ -7,14 +7,18 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/eduardokairalla1/EcoaNetwork/internal/orphan"
 	"github.com/eduardokairalla1/EcoaNetwork/internal/store"
 	"github.com/eduardokairalla1/EcoaNetwork/protocol/go/envelope"
+	"github.com/eduardokairalla1/EcoaNetwork/protocol/go/fixturetest"
 	"github.com/eduardokairalla1/EcoaNetwork/protocol/go/identity"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/eduardokairalla1/EcoaNetwork/protocol/go/schema"
 	"github.com/eduardokairalla1/EcoaNetwork/protocol/go/testevent"
 	bolt "go.etcd.io/bbolt"
@@ -25,6 +29,14 @@ import (
 
 // network is the network every test node belongs to.
 const network = "ecoa-dev"
+
+
+// fixtures is the directory of the behavioural cases.
+const fixtures = "../../../protocol/fixtures"
+
+
+// peerQuota is the orphans one peer may hold in a test node.
+const peerQuota = 3
 
 
 // --- GLOBALS ---
@@ -38,6 +50,12 @@ var gateway = Arrival{Kind: Gateway}
 
 
 // --- CODE ---
+
+// clock reads now, so a test moves every clock of the node by setting it.
+func clock() time.Time {
+	return now
+}
+
 
 // newNode returns a node over a fresh store, and the store's file path.
 func newNode(t *testing.T) (*Node, string) {
@@ -60,7 +78,7 @@ func newNode(t *testing.T) (*Node, string) {
 	rules := envelope.Rules{
 		Network: network,
 		MaxSize: envelope.MaxSize,
-		Now:     func() time.Time { return now },
+		Now:     clock,
 	}
 
 	n := &Node{
@@ -68,6 +86,7 @@ func newNode(t *testing.T) (*Node, string) {
 		rules:      rules,
 		schemas:    schemas,
 		identities: identity.NewTracker(),
+		orphans:    orphan.New(10, peerQuota, time.Hour, clock),
 	}
 
 	return n, path
@@ -426,5 +445,172 @@ func TestReceiveAcceptsOnlyOneOfManyParallelRotations(t *testing.T) {
 	// Assert
 	if got := storedCount.Load(); got != 1 {
 		t.Fatalf("stored %d rotations of one key, want 1", got)
+	}
+}
+
+
+// endorsement returns the fields of a vote on the event target.
+func endorsement(target string) testevent.Fields {
+	return testevent.Fields{
+		Protocol:  network,
+		Version:   1,
+		EventType: "review.endorsed",
+		CreatedAt: "2026-08-05T17:00:00Z",
+		Payload:   `{"target":"` + target + `"}`,
+	}
+}
+
+
+// expectBuffered stops the test when the buffer differs from c.
+func expectBuffered(t *testing.T, n *Node, c fixturetest.Case) {
+	t.Helper()
+
+	if _, ok := c.Expect["buffered"]; ok {
+		if got, want := n.orphans.Len(), len(c.List("buffered")); got != want {
+			t.Fatalf("buffered %d events, want %d", got, want)
+		}
+	}
+
+	if c.Expect["perPeerCapEnforced"] == true && n.orphans.Len() > peerQuota {
+		t.Fatalf("buffered %d events of one peer, quota is %d",
+		         n.orphans.Len(), peerQuota)
+	}
+
+	if after, ok := c.Expect["afterBound"].(map[string]any); ok {
+		now = now.Add(2 * time.Hour)
+		want, _ := after["buffered"].([]any)
+
+		if got := n.orphans.Len(); got != len(want) {
+			t.Fatalf("after the bound buffered %d, want %d", got, len(want))
+		}
+	}
+}
+
+
+// expectStored stops the test when the log differs from the stored of c.
+func expectStored(t *testing.T,
+                  n *Node,
+                  path string,
+                  c fixturetest.Case,
+                  ids map[string]string) {
+	t.Helper()
+
+	if _, ok := c.Expect["stored"]; !ok {
+		return
+	}
+
+	var want []string
+	for _, id := range c.List("stored") {
+		want = append(want, ids[id])
+	}
+
+	var got []string
+	for id := range stored(t, n, path) {
+		got = append(got, id)
+	}
+
+	slices.Sort(want)
+	slices.Sort(got)
+
+	if !slices.Equal(got, want) {
+		t.Fatalf("stored %v, want %v", got, want)
+	}
+}
+
+
+func TestOrphanFixtures(t *testing.T) {
+	file := fixturetest.LoadFrom(t, fixtures, "orphan-buffer")
+
+	fixturetest.Run(t, file, func(t *testing.T, c fixturetest.Case) {
+		// Arrange
+		n, path := newNode(t)
+		ids := map[string]string{}
+		saved := now
+		t.Cleanup(func() { now = saved })
+
+		// Act
+		for i, e := range c.Events(t) {
+			from := peer.ID(c.Arrival[i].Author)
+			n.Receive(e.Raw, Arrival{Kind: Gossip, Peer: from})
+
+			ids[e.ID] = e.Env.EventID
+		}
+
+		// Assert
+		expectBuffered(t, n, c)
+		expectStored(t, n, path, c, ids)
+	})
+}
+
+
+func TestReceiveHoldsAnOrphanWithoutStoringIt(t *testing.T) {
+	// Arrange
+	n, path := newNode(t)
+	raw := sign(t, 1, endorsement(fixturetest.EventID("e1")))
+
+	// Act
+	outcome, err := n.Receive(raw, gateway)
+
+	// Assert
+	if outcome != Orphaned || err != nil {
+		t.Fatalf("Receive = %s, %v, want orphaned", outcome, err)
+	}
+
+	if n.orphans.Len() != 1 || len(stored(t, n, path)) != 0 {
+		t.Fatal("the orphan was stored, or not held")
+	}
+}
+
+
+func TestReceiveKeepsAnotherPeersOrphanWhenOnePeerFloods(t *testing.T) {
+	// Arrange
+	n, _ := newNode(t)
+	bob := Arrival{Kind: Gossip, Peer: "bob"}
+	mallory := Arrival{Kind: Gossip, Peer: "mallory"}
+
+	n.Receive(sign(t, 1, endorsement(fixturetest.EventID("wanted"))), bob)
+
+	// Act
+	for i := range 2 * peerQuota {
+		target := fixturetest.EventID("never" + string(rune('a'+i)))
+		n.Receive(sign(t, 2, endorsement(target)), mallory)
+	}
+
+	// Assert
+	if got := n.orphans.Len(); got != 1+peerQuota {
+		t.Fatalf("buffered %d, want bob's 1 and mallory's %d", got, peerQuota)
+	}
+
+	if n.orphans.Release(fixturetest.EventID("wanted")) == nil {
+		t.Fatal("the orphan of another peer was evicted")
+	}
+}
+
+
+func TestReceiveReleasesAChainOfOrphans(t *testing.T) {
+	// Arrange
+	n, _ := newNode(t)
+	mallory := Arrival{Kind: Gossip, Peer: "mallory"}
+
+	first := fixturetest.Case{Arrival: []fixturetest.Arrival{
+		{ID: "e1", Author: "alice", Type: "review.created",
+		 Payload: []byte(`{"entity":"cnpj:1","rating":2,"body":"x"}`)},
+		{ID: "v1", Author: "bob", Type: "review.endorsed",
+		 Payload: []byte(`{"target":"e1"}`)},
+		{ID: "v2", Author: "carol", Type: "review.endorsed",
+		 Payload: []byte(`{"target":"v1"}`)},
+	}}
+	events := first.Events(t)
+
+	n.Receive(events[2].Raw, mallory)
+	n.Receive(events[1].Raw, mallory)
+
+	// Act
+	outcome, _ := n.Receive(events[0].Raw, mallory)
+
+	// Assert
+	if outcome != Stored || n.orphans.Len() != 0 {
+		t.Fatalf("Receive = %s with %d held, want the chain released",
+		         outcome, n.orphans.Len())
 	}
 }
