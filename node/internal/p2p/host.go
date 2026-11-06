@@ -4,6 +4,7 @@ package p2p
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/libp2p/go-libp2p"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -31,6 +32,9 @@ type Config struct {
 
 	// BootstrapAddrs is the list of peer multiaddrs to connect to on startup.
 	BootstrapAddrs []string
+
+	// Sync holds the peers that open sync streams to these ceilings.
+	Sync SyncLimits
 }
 
 
@@ -39,6 +43,9 @@ type Peer struct {
 	host  host.Host
 	topic *pubsub.Topic
 	sub   *pubsub.Subscription
+
+	// limiter decides which sync streams get served
+	limiter *syncLimiter
 }
 
 
@@ -58,7 +65,9 @@ func New(ctx context.Context, cfg Config) (*Peer, error) {
 		return nil, err
 	}
 
-	return &Peer{host: h, topic: topic, sub: sub}, nil
+	limiter := newSyncLimiter(cfg.Sync, time.Now)
+
+	return &Peer{host: h, topic: topic, sub: sub, limiter: limiter}, nil
 }
 
 
