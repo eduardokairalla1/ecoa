@@ -18,6 +18,9 @@ var names = []string{
 	"BOOTSTRAP_ADDRS",
 	"BOLT_DB_PATH",
 	"MAX_EVENT_SIZE",
+	"SYNC_MAX_STREAMS",
+	"SYNC_MAX_STREAMS_PER_PEER",
+	"SYNC_EVENTS_PER_PEER",
 }
 
 
@@ -47,6 +50,10 @@ func TestLoadAppliesTheDefaultsToAnEmptyEnvironment(t *testing.T) {
 		GRPCAddr:     "127.0.0.1:50051",
 		BoltDBPath:   "data/bbolt/bolt.db",
 		MaxEventSize: 16384,
+
+		SyncMaxStreams:        32,
+		SyncMaxStreamsPerPeer: 2,
+		SyncEventsPerPeer:     4096,
 	}
 
 	// Act
@@ -109,6 +116,18 @@ func TestLoadReadsEachVariable(t *testing.T) {
 		{
 			"MAX_EVENT_SIZE", "4096",
 			func(c Config) any { return c.MaxEventSize }, 4096,
+		},
+		{
+			"SYNC_MAX_STREAMS", "5",
+			func(c Config) any { return c.SyncMaxStreams }, 5,
+		},
+		{
+			"SYNC_MAX_STREAMS_PER_PEER", "3",
+			func(c Config) any { return c.SyncMaxStreamsPerPeer }, 3,
+		},
+		{
+			"SYNC_EVENTS_PER_PEER", "100",
+			func(c Config) any { return c.SyncEventsPerPeer }, 100,
 		},
 		{
 			"BOOTSTRAP_ADDRS", "/ip4/1.1.1.1/tcp/1,/ip4/2.2.2.2/tcp/2",
@@ -192,5 +211,32 @@ func TestLoadRefusesAnInvalidMaxEventSize(t *testing.T) {
 				t.Fatalf("Load accepted MAX_EVENT_SIZE=%s", value)
 			}
 		})
+	}
+}
+
+
+func TestLoadRefusesAnInvalidSyncLimit(t *testing.T) {
+	names := []string{
+		"SYNC_MAX_STREAMS",
+		"SYNC_MAX_STREAMS_PER_PEER",
+		"SYNC_EVENTS_PER_PEER",
+	}
+
+	for _, name := range names {
+		for _, value := range []string{"0", "-1", "many"} {
+			t.Run(name+"="+value, func(t *testing.T) {
+				// Arrange
+				clearEnv(t)
+				t.Setenv(name, value)
+
+				// Act
+				_, err := Load()
+
+				// Assert
+				if err == nil {
+					t.Fatalf("%s=%s should fail", name, value)
+				}
+			})
+		}
 	}
 }

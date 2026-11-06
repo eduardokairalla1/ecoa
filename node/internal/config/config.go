@@ -12,6 +12,20 @@ import (
 )
 
 
+// --- CONSTANTS ---
+
+const (
+	// defaultSyncMaxStreams is SYNC_MAX_STREAMS when unset.
+	defaultSyncMaxStreams = 32
+
+	// defaultSyncMaxStreamsPerPeer is SYNC_MAX_STREAMS_PER_PEER when unset.
+	defaultSyncMaxStreamsPerPeer = 2
+
+	// defaultSyncEventsPerPeer is SYNC_EVENTS_PER_PEER when unset.
+	defaultSyncEventsPerPeer = 4096
+)
+
+
 // --- CODE ---
 
 // Config is every setting the node reads at startup.
@@ -33,12 +47,27 @@ type Config struct {
 
 	// MaxEventSize is this node's limit per event, in bytes.
 	MaxEventSize int
+
+	// SyncMaxStreams is the most sync streams served at once.
+	SyncMaxStreams int
+
+	// SyncMaxStreamsPerPeer is the most sync streams served at once to one
+	// peer.
+	SyncMaxStreamsPerPeer int
+
+	// SyncEventsPerPeer is the most events served to one peer per minute.
+	SyncEventsPerPeer int
 }
 
 
 // Load reads the environment and applies the default of each unset variable.
 func Load() (Config, error) {
 	size, err := loadMaxEventSize()
+	if err != nil {
+		return Config{}, err
+	}
+
+	limits, err := loadSyncLimits()
 	if err != nil {
 		return Config{}, err
 	}
@@ -56,6 +85,10 @@ func Load() (Config, error) {
 		BootstrapAddrs: splitAddrs(os.Getenv("BOOTSTRAP_ADDRS")),
 		BoltDBPath:     envOr("BOLT_DB_PATH", "data/bbolt/bolt.db"),
 		MaxEventSize:   size,
+
+		SyncMaxStreams:        limits[0],
+		SyncMaxStreamsPerPeer: limits[1],
+		SyncEventsPerPeer:     limits[2],
 	}
 
 	return cfg, nil
@@ -101,4 +134,52 @@ func loadMaxEventSize() (int, error) {
 	}
 
 	return size, nil
+}
+
+
+// loadSyncLimits reads the three sync limits, in the order of Config's fields.
+func loadSyncLimits() ([3]int, error) {
+	names := [3]string{
+		"SYNC_MAX_STREAMS",
+		"SYNC_MAX_STREAMS_PER_PEER",
+		"SYNC_EVENTS_PER_PEER",
+	}
+	defaults := [3]int{
+		defaultSyncMaxStreams,
+		defaultSyncMaxStreamsPerPeer,
+		defaultSyncEventsPerPeer,
+	}
+
+	var limits [3]int
+
+	for i, name := range names {
+		value, err := positiveInt(name, defaults[i])
+		if err != nil {
+			return limits, err
+		}
+
+		limits[i] = value
+	}
+
+	return limits, nil
+}
+
+
+// positiveInt reads the variable named key as an integer above zero.
+func positiveInt(key string, fallback int) (int, error) {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback, nil
+	}
+
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", key, err)
+	}
+
+	if n <= 0 {
+		return 0, fmt.Errorf("%s: %d is not above 0", key, n)
+	}
+
+	return n, nil
 }
