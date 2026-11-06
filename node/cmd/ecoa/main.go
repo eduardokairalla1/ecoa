@@ -57,6 +57,8 @@ func run(args []string) error {
 		Listen:         cfg.ListenAddr,
 		BootstrapAddrs: cfg.BootstrapAddrs,
 		KeyPath:        cfg.PeerKeyPath,
+		ConnLow:        cfg.ConnLow,
+		ConnHigh:       cfg.ConnHigh,
 	}, cfg.MaxEventSize)
 	if err != nil {
 		return err

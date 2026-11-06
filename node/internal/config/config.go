@@ -12,6 +12,17 @@ import (
 )
 
 
+// --- CONSTANTS ---
+
+const (
+	// defaultConnLow is the connection count the manager trims down to.
+	defaultConnLow = 32
+
+	// defaultConnHigh is the connection count that starts the trimming.
+	defaultConnHigh = 96
+)
+
+
 // --- CODE ---
 
 // Config is every setting the node reads at startup.
@@ -34,6 +45,12 @@ type Config struct {
 	// PeerKeyPath is the file holding the node's libp2p private key.
 	PeerKeyPath string
 
+	// ConnLow is the connection count the manager trims down to.
+	ConnLow int
+
+	// ConnHigh is the connection count that makes the manager start trimming.
+	ConnHigh int
+
 	// MaxEventSize is this node's limit per event, in bytes.
 	MaxEventSize int
 }
@@ -42,6 +59,11 @@ type Config struct {
 // Load reads the environment and applies the default of each unset variable.
 func Load() (Config, error) {
 	size, err := loadMaxEventSize()
+	if err != nil {
+		return Config{}, err
+	}
+
+	low, high, err := loadConnLimits()
 	if err != nil {
 		return Config{}, err
 	}
@@ -59,6 +81,8 @@ func Load() (Config, error) {
 		BootstrapAddrs: splitAddrs(os.Getenv("BOOTSTRAP_ADDRS")),
 		BoltDBPath:     envOr("BOLT_DB_PATH", "data/bbolt/bolt.db"),
 		PeerKeyPath:    envOr("PEER_KEY_PATH", "data/peer.key"),
+		ConnLow:        low,
+		ConnHigh:       high,
 		MaxEventSize:   size,
 	}
 
@@ -107,3 +131,42 @@ func loadMaxEventSize() (int, error) {
 	return size, nil
 }
 
+
+// loadConnLimits reads CONN_LOW and CONN_HIGH, or an error for a pair that is
+// not 1 <= low <= high.
+func loadConnLimits() (int, int, error) {
+	low, err := envInt("CONN_LOW", defaultConnLow)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	high, err := envInt("CONN_HIGH", defaultConnHigh)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	if low < 1 || low > high {
+		return 0, 0, fmt.Errorf("CONN_LOW %d and CONN_HIGH %d: want "+
+		                        "1 <= low <= high",
+		                        low,
+		                        high)
+	}
+
+	return low, high, nil
+}
+
+
+// envInt reads the integer variable named key, or fallback when it is unset.
+func envInt(key string, fallback int) (int, error) {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback, nil
+	}
+
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", key, err)
+	}
+
+	return n, nil
+}

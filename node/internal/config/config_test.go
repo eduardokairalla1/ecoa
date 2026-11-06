@@ -18,6 +18,8 @@ var names = []string{
 	"BOOTSTRAP_ADDRS",
 	"BOLT_DB_PATH",
 	"PEER_KEY_PATH",
+	"CONN_LOW",
+	"CONN_HIGH",
 	"MAX_EVENT_SIZE",
 }
 
@@ -48,6 +50,8 @@ func TestLoadAppliesTheDefaultsToAnEmptyEnvironment(t *testing.T) {
 		GRPCAddr:     "127.0.0.1:50051",
 		BoltDBPath:   "data/bbolt/bolt.db",
 		PeerKeyPath:  "data/peer.key",
+		ConnLow:      32,
+		ConnHigh:     96,
 		MaxEventSize: 16384,
 	}
 
@@ -111,6 +115,14 @@ func TestLoadReadsEachVariable(t *testing.T) {
 		{
 			"PEER_KEY_PATH", "x.key",
 			func(c Config) any { return c.PeerKeyPath }, "x.key",
+		},
+		{
+			"CONN_LOW", "8",
+			func(c Config) any { return c.ConnLow }, 8,
+		},
+		{
+			"CONN_HIGH", "64",
+			func(c Config) any { return c.ConnHigh }, 64,
 		},
 		{
 			"MAX_EVENT_SIZE", "4096",
@@ -201,3 +213,31 @@ func TestLoadRefusesAnInvalidMaxEventSize(t *testing.T) {
 	}
 }
 
+
+func TestLoadRefusesInvalidConnLimits(t *testing.T) {
+	cases := map[string][2]string{
+		"low above high":    {"100", "50"},
+		"low below one":     {"0", "50"},
+		"low not a number":   {"few", "50"},
+		"high not a number":  {"8", "many"},
+	}
+
+	for name, pair := range cases {
+		t.Run(name, func(t *testing.T) {
+			// Arrange
+			clearEnv(t)
+			t.Setenv("CONN_LOW", pair[0])
+			t.Setenv("CONN_HIGH", pair[1])
+
+			// Act
+			_, err := Load()
+
+			// Assert
+			if err == nil {
+				t.Fatalf("Load accepted CONN_LOW=%s CONN_HIGH=%s",
+				         pair[0],
+				         pair[1])
+			}
+		})
+	}
+}
