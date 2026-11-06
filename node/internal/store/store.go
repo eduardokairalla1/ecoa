@@ -32,6 +32,11 @@ func New(path string) (*Store, error) {
 
 	err = db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(eventsBucket)
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.CreateBucketIfNotExists(cursorsBucket)
 		return err
 	})
 
