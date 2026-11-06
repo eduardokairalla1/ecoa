@@ -17,5 +17,16 @@ var logBucket = []byte("log")
 var metaBucket = []byte("meta")
 
 
+// tombstonesBucket holds a pruned event's author, keyed by its eventId. The
+// value is the pruning time (uint64 Unix nanoseconds, big-endian) followed by
+// the author. A v1 node never prunes, so it never writes here.
+var tombstonesBucket = []byte("tombstones")
+
+
 // buckets is every bucket New creates.
-var buckets = [][]byte{eventsBucket, logBucket, metaBucket}
+var buckets = [][]byte{
+	eventsBucket,
+	logBucket,
+	metaBucket,
+	tombstonesBucket,
+}
