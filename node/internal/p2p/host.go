@@ -3,12 +3,26 @@ package p2p
 
 import (
 	"context"
+	"crypto/rand"
+	"errors"
+	"fmt"
+	"io/fs"
 	"log/slog"
+	"os"
 
 	"github.com/libp2p/go-libp2p"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
+)
+
+
+// --- CONSTANTS ---
+
+const (
+	// keyMode is the permission of the peer key file: owner only.
+	keyMode = 0o600
 )
 
 
@@ -31,6 +45,10 @@ type Config struct {
 
 	// BootstrapAddrs is the list of peer multiaddrs to connect to on startup.
 	BootstrapAddrs []string
+
+	// KeyPath is the file holding the peer's private key. Empty makes the
+	// peer ID last only as long as the process.
+	KeyPath string
 }
 
 
@@ -45,7 +63,12 @@ type Peer struct {
 // New builds the peer: host, bootstrap connections, Gossipsub and the
 // subscription. It does not start receiving events; call Run for that.
 func New(ctx context.Context, cfg Config) (*Peer, error) {
-	h, err := libp2p.New(libp2p.ListenAddrStrings(cfg.Listen))
+	opts, err := hostOptions(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	h, err := libp2p.New(opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -59,6 +82,76 @@ func New(ctx context.Context, cfg Config) (*Peer, error) {
 	}
 
 	return &Peer{host: h, topic: topic, sub: sub}, nil
+}
+
+
+// hostOptions returns the libp2p options: address and identity.
+func hostOptions(cfg Config) ([]libp2p.Option, error) {
+	opts := []libp2p.Option{
+		libp2p.ListenAddrStrings(cfg.Listen),
+	}
+
+	if cfg.KeyPath == "" {
+		return opts, nil
+	}
+
+	key, err := loadOrCreateKey(cfg.KeyPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return append(opts, libp2p.Identity(key)), nil
+}
+
+
+// loadOrCreateKey reads the private key at path, or creates the file with a
+// new one when it does not exist.
+func loadOrCreateKey(path string) (crypto.PrivKey, error) {
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return createKey(path)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("read peer key %s: %w", path, err)
+	}
+
+	key, err := crypto.UnmarshalPrivateKey(raw)
+	if err != nil {
+		return nil, fmt.Errorf("peer key %s is corrupt: %w", path, err)
+	}
+
+	return key, nil
+}
+
+
+// createKey generates an Ed25519 key and writes it to path, never over a file.
+func createKey(path string) (crypto.PrivKey, error) {
+	key, _, err := crypto.GenerateEd25519Key(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+
+	raw, err := crypto.MarshalPrivateKey(key)
+	if err != nil {
+		return nil, err
+	}
+
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, keyMode)
+	if err != nil {
+		return nil, fmt.Errorf("create peer key %s: %w", path, err)
+	}
+
+	_, err = file.Write(raw)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("write peer key %s: %w", path, err)
+	}
+
+	return key, nil
 }
 
 
