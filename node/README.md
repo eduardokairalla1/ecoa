@@ -51,6 +51,18 @@ Address lists are comma-separated. The embedded bootstrap list is empty until
 a public node exists, so a new node needs `BOOTSTRAP_ADDRS` to find the
 network.
 
+## Three-node test
+
+`go test ./e2e/` starts three nodes as processes, publishes through their gRPC
+ports and checks the `stored` lines of their logs: propagation, a rejected
+event, an event that arrives before its target, and a node that was down and
+catches up on returning. To run the same test on the container image:
+
+```
+docker build -f node/Dockerfile -t ecoa-node .
+ECOA_IMAGE=ecoa-node go test ./e2e/
+```
+
 ## Legal exposure
 
 Running a node means storing and relaying content written by strangers, and
