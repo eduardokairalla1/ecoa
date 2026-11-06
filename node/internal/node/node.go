@@ -13,6 +13,7 @@ import (
 	"github.com/eduardokairalla1/EcoaNetwork/protocol/go/envelope"
 	"github.com/eduardokairalla1/EcoaNetwork/protocol/go/event"
 	"github.com/eduardokairalla1/EcoaNetwork/protocol/go/schema"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 
@@ -88,7 +89,11 @@ func New(ctx context.Context,
 		Now:     time.Now,
 	}
 
-	return &Node{store: s, peer: p, rules: rules, schemas: schemas}, nil
+	n := &Node{store: s, peer: p, rules: rules, schemas: schemas}
+
+	p.OnConnect(func(id peer.ID) { n.syncWith(ctx, id) })
+
+	return n, nil
 }
 
 
