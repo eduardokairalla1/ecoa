@@ -13,6 +13,8 @@ import (
 	"github.com/eduardokairalla1/EcoaNetwork/protocol/go/envelope"
 	"github.com/eduardokairalla1/EcoaNetwork/protocol/go/event"
 	"github.com/eduardokairalla1/EcoaNetwork/protocol/go/schema"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 
@@ -77,31 +79,47 @@ func New(ctx context.Context,
 		return nil, err
 	}
 
-	p, err := p2p.New(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-
 	rules := envelope.Rules{
 		Network: cfg.Network,
 		MaxSize: maxEventSize,
 		Now:     time.Now,
 	}
 
-	return &Node{store: s, peer: p, rules: rules, schemas: schemas}, nil
+	n := &Node{store: s, rules: rules, schemas: schemas}
+
+	cfg.Validator = n.validate
+
+	n.peer, err = p2p.New(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return n, nil
 }
 
 
-// Run pulls events from the topic until ctx is cancelled.
+// Run keeps the subscription, and so the mesh, alive until ctx is cancelled.
+// The topic validator has handled each event by the time it is read here.
 func (n *Node) Run(ctx context.Context) {
 	for {
-		raw, from, err := n.peer.ReceiveEvent(ctx)
-		if err != nil {
+		if _, _, err := n.peer.ReceiveEvent(ctx); err != nil {
 			return
 		}
-
-		n.Receive(raw, Arrival{Kind: Gossip, Peer: from})
 	}
+}
+
+
+// validate lets Gossipsub relay an event only once Receive has stored it. Any
+// other outcome is ignored, never rejected: rejecting punishes the peer.
+func (n *Node) validate(_ context.Context,
+                        from peer.ID,
+                        raw []byte) pubsub.ValidationResult {
+	outcome, _ := n.Receive(raw, Arrival{Kind: Gossip, Peer: from})
+	if outcome == Stored {
+		return pubsub.ValidationAccept
+	}
+
+	return pubsub.ValidationIgnore
 }
 
 
