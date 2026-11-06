@@ -52,14 +52,12 @@ func run(args []string) error {
 	}
 	defer db.Close()
 
-	n, err := node.New(ctx, db, p2p.Config{
-		Network:        cfg.Network,
-		Listen:         cfg.ListenAddr,
-		BootstrapAddrs: cfg.BootstrapAddrs,
-		KeyPath:        cfg.PeerKeyPath,
-		ConnLow:        cfg.ConnLow,
-		ConnHigh:       cfg.ConnHigh,
-	}, cfg.MaxEventSize)
+	peers, err := peerConfig(cfg, db)
+	if err != nil {
+		return err
+	}
+
+	n, err := node.New(ctx, db, peers, cfg.MaxEventSize)
 	if err != nil {
 		return err
 	}
@@ -93,4 +91,29 @@ func run(args []string) error {
 	n.Run(ctx)
 
 	return nil
+}
+
+
+// peerConfig builds the network settings, with the peers of the last session
+// and a hook that remembers each peer the node reaches.
+func peerConfig(cfg config.Config, db *store.Store) (p2p.Config, error) {
+	known, err := db.KnownPeers()
+	if err != nil {
+		return p2p.Config{}, fmt.Errorf("read known peers: %w", err)
+	}
+
+	return p2p.Config{
+		Network:        cfg.Network,
+		Listen:         cfg.ListenAddr,
+		BootstrapAddrs: cfg.BootstrapAddrs,
+		KnownAddrs:     known,
+		KeyPath:        cfg.PeerKeyPath,
+		ConnLow:        cfg.ConnLow,
+		ConnHigh:       cfg.ConnHigh,
+		OnConnected: func(addr string) {
+			if err := db.AddPeer(addr); err != nil {
+				slog.Warn("remember peer", "addr", addr, "err", err)
+			}
+		},
+	}, nil
 }
