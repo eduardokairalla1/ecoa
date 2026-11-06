@@ -9,11 +9,14 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"slices"
+	"time"
 
 	"github.com/libp2p/go-libp2p"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
 	"github.com/libp2p/go-libp2p/p2p/net/connmgr"
@@ -38,6 +41,11 @@ const (
 
 // --- GLOBALS ---
 
+// dialTimeout bounds each connection attempt at startup, so a peer that is
+// down delays the start by this much and no more.
+var dialTimeout = 5 * time.Second
+
+
 // DefaultBootstrapAddrs is the bootstrap list shipped with the node. Empty
 // until a public node exists; the operator overrides it from configuration.
 var DefaultBootstrapAddrs []string
@@ -55,6 +63,15 @@ type Config struct {
 
 	// BootstrapAddrs is the list of peer multiaddrs to connect to on startup.
 	BootstrapAddrs []string
+
+	// KnownAddrs are the peers of the last session, dialed before the
+	// bootstrap list.
+	KnownAddrs []string
+
+	// OnConnected is called with the multiaddr of each peer this node dials
+	// and reaches. It is how the caller remembers peers without p2p knowing
+	// the store.
+	OnConnected func(addr string)
 
 	// KeyPath is the file holding the peer's private key. Empty makes the
 	// peer ID last only as long as the process.
@@ -89,7 +106,11 @@ func New(ctx context.Context, cfg Config) (*Peer, error) {
 		return nil, err
 	}
 
-	connectBootstrap(ctx, h, bootstrapList(cfg))
+	if cfg.OnConnected != nil {
+		h.Network().Notify(remember(cfg.OnConnected))
+	}
+
+	connectBootstrap(ctx, h, dialOrder(cfg))
 
 	topic, sub, err := joinTopic(ctx, h, cfg.Network)
 	if err != nil {
@@ -198,8 +219,31 @@ func bootstrapList(cfg Config) []string {
 }
 
 
-// connectBootstrap dials every bootstrap address. A peer being down must not
-// stop this node from starting, so a failure is logged and skipped.
+// dialOrder returns the peers of the last session, then the bootstrap list.
+func dialOrder(cfg Config) []string {
+	return append(slices.Clone(cfg.KnownAddrs), bootstrapList(cfg)...)
+}
+
+
+// remember reports each peer this node dialed, since an inbound connection
+// comes from a port nobody can dial back.
+func remember(onConnected func(addr string)) *network.NotifyBundle {
+	return &network.NotifyBundle{
+		ConnectedF: func(_ network.Network, c network.Conn) {
+			if c.Stat().Direction != network.DirOutbound {
+				return
+			}
+
+			onConnected(c.RemoteMultiaddr().String() +
+			            "/p2p/" + c.RemotePeer().String())
+		},
+	}
+}
+
+
+// connectBootstrap dials every address, each under its own timeout. A peer
+// being down must not stop this node from starting, so a failure is logged
+// and skipped.
 func connectBootstrap(ctx context.Context, h host.Host, addrs []string) {
 	for _, addr := range addrs {
 		info, err := peer.AddrInfoFromString(addr)
@@ -208,7 +252,11 @@ func connectBootstrap(ctx context.Context, h host.Host, addrs []string) {
 			continue
 		}
 
-		if err := h.Connect(ctx, *info); err != nil {
+		dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
+		err = h.Connect(dialCtx, *info)
+		cancel()
+
+		if err != nil {
 			slog.Warn("bootstrap unreachable", "addr", addr, "err", err)
 		}
 	}
