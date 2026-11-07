@@ -1,71 +1,62 @@
-// Package server is the gRPC door a gateway uses to submit events.
+// Package server is the gRPC entry a gateway uses to submit events.
 package server
 
 
 import (
 	"context"
-	"errors"
-	"log/slog"
 
 	"github.com/eduardokairalla1/EcoaNetwork/internal/node"
 	pb "github.com/eduardokairalla1/EcoaNetwork/internal/protobuf"
-	"github.com/eduardokairalla1/EcoaNetwork/internal/store"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 
-// --- GLOBALS ---
+// --- CONSTANTS ---
 
 // MaxMessage is the 16 KB envelope ceiling plus its protobuf field header.
 const MaxMessage = 16<<10 + 8
 
 
-// Server answers Publish by handing the envelope to the node.
-type Server struct {
+// --- CODE ---
+
+// server answers Publish by handing the envelope to the node.
+type server struct {
 	pb.UnimplementedNodeServiceServer
 
-	// node lifetime context the gossip goroutines run under
-	ctx  context.Context
 	node *node.Node
 }
 
 
-// --- CODE ---
-
 // New returns a gRPC server with the node service registered on it.
-func New(ctx context.Context, n *node.Node) *grpc.Server {
+func New(n *node.Node) *grpc.Server {
 	g := grpc.NewServer(grpc.MaxRecvMsgSize(MaxMessage))
-	pb.RegisterNodeServiceServer(g, &Server{ctx: ctx, node: n})
+	pb.RegisterNodeServiceServer(g, &server{node: n})
 
 	return g
 }
 
 
-// Publish stores the envelope, then gossips it if it was new.
-func (s *Server) Publish(_ context.Context,
+// Publish answers with what the node did to the envelope.
+func (s *server) Publish(_ context.Context,
                          event *pb.Event) (*pb.PublishResponse, error) {
-	raw := event.GetEnvelope()
+	outcome, err := s.node.Receive(event.GetEnvelope(),
+	                               node.Arrival{Kind: node.Gateway})
 
-	err := s.node.Handle(raw)
-	if errors.Is(err, store.ErrDuplicate) {
+	switch outcome {
+	case node.Stored:
+		return &pb.PublishResponse{Outcome: pb.Outcome_ACCEPTED}, nil
+	case node.Duplicate:
 		return &pb.PublishResponse{Outcome: pb.Outcome_ALREADY_EXISTS}, nil
+	case node.Orphaned:
+		return &pb.PublishResponse{Outcome: pb.Outcome_ORPHAN}, nil
+	case node.Failed:
+		return nil, status.Error(codes.Unavailable, err.Error())
 	}
 
-	if err != nil {
-		slog.Info("publish", "outcome", "rejected", "bytes", len(raw))
-		return &pb.PublishResponse{
-			Outcome: pb.Outcome_REJECTED,
-			Reason:  err.Error(),
-		}, nil
-	}
-
-	// gossip the event in the background, after answering
-	go func() {
-		if err := s.node.Publish(s.ctx, raw); err != nil {
-			slog.Warn("gossip", "err", err)
-		}
-	}()
-
-	slog.Info("publish", "outcome", "accepted", "bytes", len(raw))
-	return &pb.PublishResponse{Outcome: pb.Outcome_ACCEPTED}, nil
+	return &pb.PublishResponse{
+		Outcome: pb.Outcome_REJECTED,
+		Reason:  err.Error(),
+	}, nil
 }
