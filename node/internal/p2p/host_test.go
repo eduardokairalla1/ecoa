@@ -4,16 +4,23 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"net"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 
-// --- GLOBALS ---
+// --- CONSTANTS ---
 
 // loopback lets the kernel pick a free port, so tests never collide.
 const loopback = "/ip4/127.0.0.1/tcp/0"
@@ -25,14 +32,14 @@ const deadEnd = "/ip4/127.0.0.1/tcp/1/p2p/" +
 	"12D3KooWL8WucnuP3YZ7yh2E8bNggmBsqhGs4PxXrxTZaEF7DH1j"
 
 
+// --- CODE ---
+
 // safeBuffer collects log output written from another goroutine.
 type safeBuffer struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
 }
 
-
-// --- CODE ---
 
 func (b *safeBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
@@ -50,11 +57,28 @@ func (b *safeBuffer) String() string {
 }
 
 
+// acceptAll relays every message.
+func acceptAll(context.Context, peer.ID, []byte) pubsub.ValidationResult {
+	return pubsub.ValidationAccept
+}
+
+
+// config returns the settings of a test peer that bootstraps from addrs.
+func config(addrs ...string) Config {
+	return Config{
+		Network:        "ecoa-test",
+		Listen:         loopback,
+		BootstrapAddrs: addrs,
+		Validator:      acceptAll,
+	}
+}
+
+
 func TestNew(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	p, err := New(ctx, Config{Network: "ecoa-test", Listen: loopback})
+	p, err := New(ctx, config())
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -72,7 +96,10 @@ func TestNewRejectsBadListenAddr(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, err := New(ctx, Config{Network: "ecoa-test", Listen: "nonsense"})
+	bad := config()
+	bad.Listen = "nonsense"
+
+	_, err := New(ctx, bad)
 	if err == nil {
 		t.Fatal("an unbindable listen address should fail")
 	}
@@ -85,11 +112,7 @@ func TestNewSurvivesDeadBootstrap(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	p, err := New(ctx, Config{
-		Network:        "ecoa-test",
-		Listen:         loopback,
-		BootstrapAddrs: []string{deadEnd},
-	})
+	p, err := New(ctx, config(deadEnd))
 	if err != nil {
 		t.Fatalf("New with a dead bootstrap peer: %v", err)
 	}
@@ -136,7 +159,7 @@ func TestAddrs(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	p, err := New(ctx, Config{Network: "ecoa-test", Listen: loopback})
+	p, err := New(ctx, config())
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -161,7 +184,7 @@ func TestClose(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	p, err := New(ctx, Config{Network: "ecoa-test", Listen: loopback})
+	p, err := New(ctx, config())
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -172,5 +195,196 @@ func TestClose(t *testing.T) {
 
 	if len(p.host.Addrs()) != 0 {
 		t.Error("a closed node is still listening")
+	}
+}
+
+
+func TestNewKeepsThePeerIDAcrossRestarts(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Arrange
+	cfg := Config{
+		Network:   "ecoa-test",
+		Listen:    loopback,
+		Validator: acceptAll,
+		KeyPath:   filepath.Join(t.TempDir(), "peer.key"),
+	}
+
+	first, err := New(ctx, cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	id := first.host.ID()
+	first.Close()
+
+	// Act
+	second, err := New(ctx, cfg)
+	if err != nil {
+		t.Fatalf("New after restart: %v", err)
+	}
+	defer second.Close()
+
+	// Assert
+	if second.host.ID() != id {
+		t.Fatalf("peer ID = %s after restart, want %s", second.host.ID(), id)
+	}
+}
+
+
+func TestLoadOrCreateKeyCreatesTheFileForOwnerOnly(t *testing.T) {
+	// Arrange
+	path := filepath.Join(t.TempDir(), "peer.key")
+
+	// Act
+	_, err := loadOrCreateKey(path)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("loadOrCreateKey: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("key file: %v", err)
+	}
+
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("key file mode = %o, want 600", info.Mode().Perm())
+	}
+}
+
+
+func TestNewNamesTheCorruptKeyFile(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Arrange
+	path := filepath.Join(t.TempDir(), "peer.key")
+	if err := os.WriteFile(path, []byte("not a key"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// Act
+	_, err := New(ctx, Config{
+		Network:   "ecoa-test",
+		Listen:    loopback,
+		Validator: acceptAll,
+		KeyPath:   path,
+	})
+
+	// Assert
+	if err == nil || !strings.Contains(err.Error(), path) {
+		t.Fatalf("New = %v, want an error naming %s", err, path)
+	}
+}
+
+
+func TestDialOrderPutsTheKnownPeersFirst(t *testing.T) {
+	// Arrange
+	cfg := Config{
+		KnownAddrs:     []string{"known"},
+		BootstrapAddrs: []string{"bootstrap"},
+	}
+
+	// Act
+	got := dialOrder(cfg)
+
+	// Assert
+	want := []string{"known", "bootstrap"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("dialOrder = %v, want %v", got, want)
+	}
+}
+
+
+func TestNewReportsThePeerItDialed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Arrange
+	target, err := libp2p.New(libp2p.ListenAddrStrings(loopback))
+	if err != nil {
+		t.Fatalf("host: %v", err)
+	}
+	defer target.Close()
+
+	want := target.Addrs()[0].String() + "/p2p/" + target.ID().String()
+	reported := make(chan string, 1)
+
+	// Act
+	p, err := New(ctx, Config{
+		Network:        "ecoa-test",
+		Listen:         loopback,
+		BootstrapAddrs: []string{want},
+		Validator:      acceptAll,
+		OnDialed:       func(addr string) { reported <- addr },
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer p.Close()
+
+	// Assert
+	select {
+	case got := <-reported:
+		if got != want {
+			t.Fatalf("OnDialed addr = %q, want %q", got, want)
+		}
+	case <-ctx.Done():
+		t.Fatal("OnDialed was never called")
+	}
+}
+
+
+func TestNewStartsWithinTheTimeoutWhenEveryPeerIsDown(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Arrange
+	silent, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer silent.Close()
+
+	go func() {
+		for {
+			conn, err := silent.Accept()
+			if err != nil {
+				return
+			}
+
+			defer conn.Close()
+		}
+	}()
+
+	port := strconv.Itoa(silent.Addr().(*net.TCPAddr).Port)
+	hangs := "/ip4/127.0.0.1/tcp/" + port +
+	         "/p2p/12D3KooWL8WucnuP3YZ7yh2E8bNggmBsqhGs4PxXrxTZaEF7DH1j"
+
+	previous := dialTimeout
+	dialTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { dialTimeout = previous })
+
+	start := time.Now()
+
+	// Act
+	p, err := New(ctx, Config{
+		Network:        "ecoa-test",
+		Listen:         loopback,
+		KnownAddrs:     []string{hangs},
+		BootstrapAddrs: []string{hangs, deadEnd},
+		Validator:      acceptAll,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer p.Close()
+
+	// Assert
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("New took %s, want it bounded by the dial timeout", elapsed)
 	}
 }

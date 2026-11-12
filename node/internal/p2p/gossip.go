@@ -5,18 +5,30 @@ import (
 	"context"
 	"time"
 
+	"github.com/eduardokairalla1/EcoaNetwork/protocol/go/envelope"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 
-// --- GLOBALS ---
+// --- CONSTANTS ---
+
+// MaxMessage is the largest Gossipsub message: an envelope and its wrapping.
+const MaxMessage = envelope.MaxSize + 1<<10
+
 
 // pollInterval is how often WaitForPeers rechecks the topic.
 const pollInterval = 50 * time.Millisecond
 
 
 // --- CODE ---
+
+// Validator decides whether a message from a peer may be relayed.
+type Validator func(ctx context.Context,
+                    from peer.ID,
+                    raw []byte) pubsub.ValidationResult
+
 
 // Topic returns the Gossipsub topic for a network: one topic per network,
 // carrying every event type.
@@ -30,13 +42,22 @@ func joinTopic(
 	ctx context.Context,
 	h host.Host,
 	network string,
+	validate Validator,
 ) (*pubsub.Topic, *pubsub.Subscription, error) {
-	ps, err := pubsub.NewGossipSub(ctx, h)
+	ps, err := pubsub.NewGossipSub(ctx,
+	                               h,
+	                               pubsub.WithMaxMessageSize(MaxMessage))
 	if err != nil {
 		return nil, nil, err
 	}
 
 	name := Topic(network)
+
+	// Gossipsub relays a message only once its validator has accepted it.
+	err = ps.RegisterTopicValidator(name, relayValidator(h.ID(), validate))
+	if err != nil {
+		return nil, nil, err
+	}
 
 	topic, err := ps.Join(name)
 	if err != nil {
@@ -52,14 +73,28 @@ func joinTopic(
 }
 
 
-// ReceiveEvent blocks until an event arrives on the topic or ctx is cancelled.
-func (p *Peer) ReceiveEvent(ctx context.Context) ([]byte, error) {
+// relayValidator accepts this node's own messages and validates the rest.
+func relayValidator(self peer.ID, validate Validator) pubsub.ValidatorEx {
+	return func(ctx context.Context,
+	            from peer.ID,
+	            msg *pubsub.Message) pubsub.ValidationResult {
+		if from == self {
+			return pubsub.ValidationAccept
+		}
+
+		return validate(ctx, from, msg.Data)
+	}
+}
+
+
+// ReceiveEvent returns the next event on the topic and the peer it came from.
+func (p *Host) ReceiveEvent(ctx context.Context) ([]byte, peer.ID, error) {
 	msg, err := p.sub.Next(ctx)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	return msg.Data, nil
+	return msg.Data, msg.ReceivedFrom, nil
 }
 
 
@@ -70,7 +105,7 @@ func (p *Peer) ReceiveEvent(ctx context.Context) ([]byte, error) {
 // starts relaying once the mesh is grafted, which happens on the next
 // heartbeat. Publishing in between is silently lost, so waiting for a peer is
 // necessary and not sufficient: one heartbeat has to pass as well.
-func (p *Peer) WaitForPeers(ctx context.Context) error {
+func (p *Host) WaitForPeers(ctx context.Context) error {
 	for len(p.topic.ListPeers()) == 0 {
 		select {
 		case <-ctx.Done():
@@ -89,6 +124,6 @@ func (p *Peer) WaitForPeers(ctx context.Context) error {
 
 
 // Publish sends an event to the topic.
-func (p *Peer) Publish(ctx context.Context, raw []byte) error {
+func (p *Host) Publish(ctx context.Context, raw []byte) error {
 	return p.topic.Publish(ctx, raw)
 }

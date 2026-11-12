@@ -1,14 +1,15 @@
 package main
 
+
 import (
 	"context"
-	"flag"
+	"fmt"
 	"log/slog"
 	"net"
 	"os"
 	"os/signal"
-	"strings"
 
+	"github.com/eduardokairalla1/EcoaNetwork/internal/config"
 	"github.com/eduardokairalla1/EcoaNetwork/internal/node"
 	"github.com/eduardokairalla1/EcoaNetwork/internal/p2p"
 	"github.com/eduardokairalla1/EcoaNetwork/internal/server"
@@ -16,91 +17,64 @@ import (
 )
 
 
-// --- GLOBALS ---
-
-
-
 // --- CODE ---
 
 func main() {
-	network := flag.String("network",
-						   "ecoa-dev",
-						   "network this node belongs to")
-
-	listen := flag.String("listen",
-						  "/ip4/127.0.0.1/tcp/4001",
-						  "multiaddr to listen on")
-
-	grpcAddr := flag.String("grpc",
-							"127.0.0.1:50051",
-							"host:port the gateway submits events to")
-
-	bootstrapAddrs := flag.String(
-		"bootstrap",
-		"",
-		"comma-separated peer multiaddrs; replaces the default list",
-	)
-
-	publish := flag.String("publish",
-						   "",
-						   "event file to publish after connecting")
-	flag.Parse()
-
-	addrs := p2p.DefaultBootstrapAddrs
-
-	// The flag replaces the default list, it does not extend it.
-	if *bootstrapAddrs != "" {
-		addrs = strings.Split(*bootstrapAddrs, ",")
-	}
-
 	// The composition root installs the default logger.
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+
+	if err := run(os.Args[1:]); err != nil {
+		slog.Error("start", "err", err)
+		os.Exit(1)
+	}
+}
+
+
+// run starts the node and holds until an interrupt ends it.
+func run(args []string) error {
+	if len(args) > 0 {
+		return fmt.Errorf("unexpected arguments %q: "+
+		                  "the node is configured by environment variables",
+		                  args)
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	boltDbPath := os.Getenv("BOLT_DB_PATH")
-	if boltDbPath == "" {
-		boltDbPath = "data/bbolt/bolt.db"
-	}
-
-	db, err := store.New(boltDbPath)
+	db, err := store.New(cfg.BoltDBPath)
 	if err != nil {
-		slog.Error("open store", "path", boltDbPath, "err", err)
-		os.Exit(1)
+		return fmt.Errorf("open store %s: %w", cfg.BoltDBPath, err)
 	}
-
 	defer db.Close()
 
-	n, err := node.New(
-		ctx,
-		db,
-		p2p.Config{
-			Network:        *network,
-			Listen:         *listen,
-			BootstrapAddrs: addrs,
-		},
-	)
-
+	peers, err := peerConfig(cfg, db)
 	if err != nil {
-		slog.Error("start", "err", err)
-		os.Exit(1)
+		return err
+	}
+
+	n, err := node.New(ctx, db, peers, cfg.MaxEventSize, cfg.AdmissionRate)
+	if err != nil {
+		return err
 	}
 	defer n.Close()
 
-	slog.Info("joined", "topic", p2p.Topic(*network))
+	slog.Info("joined", "topic", p2p.Topic(cfg.Network))
 
 	for _, addr := range n.Addrs() {
 		slog.Info("listening", "addr", addr)
 	}
 
-	lis, err := net.Listen("tcp", *grpcAddr)
+	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
-		slog.Error("listen grpc", "addr", *grpcAddr, "err", err)
-		os.Exit(1)
+		return fmt.Errorf("listen grpc %s: %w", cfg.GRPCAddr, err)
 	}
 
-	g := server.New(ctx, n)
+	g := server.New(n)
 
 	// Deferred after n.Close, so it stops before the node it calls into.
 	defer g.GracefulStop()
@@ -113,20 +87,37 @@ func main() {
 
 	slog.Info("grpc", "addr", lis.Addr().String())
 
-	if *publish != "" {
-		raw, err := os.ReadFile(*publish)
-		if err != nil {
-			slog.Error("read event", "err", err)
-			os.Exit(1)
-		}
+	// Run holds until ctx ends.
+	n.Run(ctx)
 
-		go func() {
-			if err := n.Publish(ctx, raw); err != nil {
-				slog.Error("publish", "err", err)
-			}
-		}()
+	return nil
+}
+
+
+// peerConfig builds the network settings, with the peers of the last session.
+func peerConfig(cfg config.Config, db *store.Store) (p2p.Config, error) {
+	known, err := db.KnownPeers()
+	if err != nil {
+		return p2p.Config{}, fmt.Errorf("read known peers: %w", err)
 	}
 
-	// Run holds main until ctx ends, so the deferred closes wait for it.
-	n.Run(ctx)
+	return p2p.Config{
+		Network:        cfg.Network,
+		Listen:         cfg.ListenAddr,
+		BootstrapAddrs: cfg.BootstrapAddrs,
+		KnownAddrs:     known,
+		Sync: p2p.SyncLimits{
+			MaxStreams:        cfg.SyncMaxStreams,
+			MaxStreamsPerPeer: cfg.SyncMaxStreamsPerPeer,
+			EventsPerPeer:     cfg.SyncEventsPerPeer,
+		},
+		KeyPath:        cfg.PeerKeyPath,
+		ConnLow:        cfg.ConnLow,
+		ConnHigh:       cfg.ConnHigh,
+		OnDialed: func(addr string) {
+			if err := db.AddPeer(addr); err != nil {
+				slog.Warn("remember peer", "addr", addr, "err", err)
+			}
+		},
+	}, nil
 }

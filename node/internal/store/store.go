@@ -9,19 +9,19 @@ import (
 )
 
 
-// --- GLOBALS ---
-
-// Store is the event log, backed by a single bbolt file.
-type Store struct {
-	db *bolt.DB
-}
-
+// --- CONSTANTS ---
 
 // openTimeout bounds the wait for another process holding the file lock.
 const openTimeout = time.Second
 
 
 // --- CODE ---
+
+// Store is the event log, backed by a single bbolt file.
+type Store struct {
+	db *bolt.DB
+}
+
 
 // New opens the bbolt file at path and creates the buckets it needs.
 func New(path string) (*Store, error) {
@@ -31,8 +31,13 @@ func New(path string) (*Store, error) {
 	}
 
 	err = db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(eventsBucket)
-		return err
+		for _, name := range buckets {
+			if _, err := tx.CreateBucketIfNotExists(name); err != nil {
+				return err
+			}
+		}
+
+		return nil
 	})
 
 	// Closing releases the file lock taken by the open above.
