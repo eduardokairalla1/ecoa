@@ -317,10 +317,12 @@ flowchart LR
         P["/api proxy<br/>BACKEND_ORIGIN"]
     end
     BE["backend · FastAPI :8000<br/>accounts (Cognito)<br/>publish · reads · human verifier"]
-    subgraph nodes["three nodes · Go"]
+    subgraph nodes["five nodes · Go"]
         N1["node-1<br/>gRPC :50051 · libp2p :4001"]
         N2["node-2"]
         N3["node-3"]
+        N4["node-4"]
+        N5["node-5"]
     end
     subgraph idx["indexer · Go"]
         PR["indexer project<br/>follows every node<br/>checks domain claims"]
@@ -337,12 +339,8 @@ flowchart LR
     BE -->|"HTTP reads"| SV
     BE --> COG
     BE -->|"users"| PG
-    N1 <-->|"Gossipsub + sync"| N2
-    N2 <-->|"Gossipsub + sync"| N3
-    N1 <-->|"Gossipsub + sync"| N3
-    PR -->|"SubscribeEvents"| N1
-    PR -->|"SubscribeEvents"| N2
-    PR -->|"SubscribeEvents"| N3
+    N1 <-->|"Gossipsub + sync"| N2 <--> N3 <--> N4 <--> N5
+    PR -->|"SubscribeEvents, one stream per node"| nodes
     PR -->|"projections"| PG
     PR -->|"TXT lookups"| DNS
     SV -->|"queries"| PG
